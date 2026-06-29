@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>flowerfetch composer — Phase 2</title>
+<title>flowerfetch composer — Phase 3</title>
 <style>
   :root{
     --fs: 13px;
@@ -94,12 +94,22 @@
   .note{padding:8px 12px;color:var(--muted);font-size:11px;border-top:1px solid var(--line);background:var(--panel)}
   .file-in{display:none}
   .thumb{max-width:100%; max-height:120px; border:1px solid var(--line); border-radius:6px; margin-bottom:8px; display:block; image-rendering:pixelated}
+  /* info placement tool */
+  textarea.info{font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:12px; line-height:1.3; width:100%; min-height:110px; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:6px; resize:vertical; white-space:pre; overflow:auto; caret-color:var(--accent)}
+  .diag{font-size:11px; color:var(--muted); margin:8px 0; line-height:1.5}
+  .diag .warn{color:#e6b35a}
+  .diag b{color:var(--ink); font-weight:600}
+  .nuzzlewrap{position:relative; display:inline-block; background:#0d0b12; padding:8px; border:1px solid var(--line); border-radius:8px; margin-top:6px; max-width:100%; overflow:auto}
+  pre.nstem{font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:var(--fs); line-height:1.2; margin:0; white-space:pre; color:rgb(140,185,120)}
+  .infoblock{position:absolute; cursor:grab; white-space:pre; font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:var(--fs); line-height:1.2; background:#0d0b12; z-index:3; border:1px dashed rgba(175,120,225,.45)}
+  .infoblock.dragging{cursor:grabbing; border-style:solid; border-color:var(--accent)}
+  .infoblock .ihandle{position:absolute; top:-16px; left:0; font-size:9px; color:var(--accent); background:#0d0b12; padding:0 3px; border-radius:3px; white-space:nowrap; font-family:'Inter',sans-serif}
 </style>
 </head>
 <body>
 <header>
   <h1>flower<span>fetch</span> composer</h1>
-  <span class="tag">Phase 2 · image layers + braille/ASCII</span>
+  <span class="tag">Phase 3 · image layers + info placement</span>
   <div class="spacer"></div>
   <button class="mini" id="resetBtn">Reset</button>
   <button class="primary" id="exportBtn">⬇ Export files</button>
@@ -403,9 +413,9 @@ function renderCtx(){
     const F=FRAMES.find(f=>f.key===sel.key);
     $('midTitle').textContent='Frame source — '+F.name;
     if(sel.key==='gbot'){ p.innerHTML=`<div class="panel-body">garland_bot.txt is not composited by the current flowerfetch.sh layout — nothing to edit here yet.</div>`; $('ctxhint').textContent='Unused by the current layout.'; return; }
+    if(sel.key==='info'){ $('midTitle').textContent='Info placement'; renderInfoTool(p); $('ctxhint').textContent='Drag the purple info block onto the stem to set the nuzzle column & start row. Info is preview-only — not exported.'; return; }
     renderFrameEditor(p,F);
-    $('ctxhint').textContent = sel.key==='stem' ? 'Drag the purple line = nuzzle column · green line = stem start row.'
-      : (sel.key==='info' ? 'Sample info for preview only — not exported.' : 'Edit the garland art.');
+    $('ctxhint').textContent = sel.key==='stem' ? 'Drag the purple line = nuzzle column · green line = stem start row.' : 'Edit the garland art.';
   }
 }
 
@@ -483,6 +493,78 @@ function renderFrameEditor(p,F){
   const ed=$('editor'); ed.value=state[F.key]; sizeEditor(); updateGuides();
   ed.oninput=()=>{ state[F.key]=ed.value; sizeEditor(); updateGuides(); renderPreview(); };
   if(F.key==='stem'){ $('guideCol').addEventListener('mousedown',e=>dragGuide(e,'col')); $('guideRow').addEventListener('mousedown',e=>dragGuide(e,'row')); }
+}
+
+// ====== info placement tool (Phase 3) =====================================
+const stripAnsi = s => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g,'').replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g,'');
+function renderInfoTool(p){
+  const wrap=document.createElement('div'); wrap.className='panel-body';
+  wrap.innerHTML=`
+    <div class="row tight" style="gap:6px">
+      <label style="flex:1">Paste your real <code>fastfetch --logo none</code> output — ANSI colors are stripped on paste.</label>
+      <button class="mini" id="infoStrip">Strip ANSI</button>
+    </div>
+    <textarea class="info" id="infoEdit" spellcheck="false" wrap="off"></textarea>
+    <div class="diag" id="infoDiag"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Drag the purple info block onto the stem to set <b>SEP_TXT_COL</b> (column) &amp; <b>STEM_START</b> (row):</div>
+    <div class="nuzzlewrap" id="nuzzlewrap">
+      <pre class="nstem" id="nstem"></pre>
+      <div class="infoblock" id="infoblock"><span class="ihandle" id="ihandle"></span></div>
+    </div>`;
+  p.appendChild(wrap);
+  const ed=wrap.querySelector('#infoEdit');
+  ed.value=state.info;
+  ed.addEventListener('paste', e=>{
+    e.preventDefault();
+    const t=stripAnsi((e.clipboardData||window.clipboardData).getData('text'));
+    const s=ed.selectionStart, en=ed.selectionEnd;
+    ed.value=ed.value.slice(0,s)+t+ed.value.slice(en);
+    ed.selectionStart=ed.selectionEnd=s+t.length;
+    state.info=ed.value; renderInfoNuzzle(); renderPreview();
+  });
+  ed.oninput=()=>{ state.info=ed.value; renderInfoNuzzle(); renderPreview(); };
+  wrap.querySelector('#infoStrip').onclick=()=>{ ed.value=stripAnsi(ed.value); state.info=ed.value; renderInfoNuzzle(); renderPreview(); };
+  $('infoblock').addEventListener('mousedown', dragInfoBlock);
+  renderInfoNuzzle();
+}
+function renderInfoNuzzle(){
+  const nstem=$('nstem'); if(!nstem) return;
+  nstem.textContent=state.stem.replace(/\n$/,'')+'\n';
+  nstem.style.color=rgbCss(state.frame);
+  const ib=$('infoblock');
+  const infoLines=srcLines(state.info);
+  ib.innerHTML=`<span class="ihandle" id="ihandle"></span>`;
+  ib.insertAdjacentText('beforeend', infoLines.join('\n'));
+  ib.style.color=rgbCss(state.text);
+  measureCell(); const pad=8;
+  ib.style.left=(pad+state.sepCol*cell.w)+'px';
+  ib.style.top =(pad+state.stemStart*cell.h)+'px';
+  $('ihandle').textContent=`col ${state.sepCol} · row ${state.stemStart}`;
+  updateInfoDiag();
+}
+function dragInfoBlock(e){
+  e.preventDefault(); const ib=$('infoblock'); ib.classList.add('dragging');
+  const sx=e.clientX, sy=e.clientY, c0=state.sepCol, r0=state.stemStart;
+  measureCell();
+  const move=ev=>{
+    state.sepCol=Math.min(40,Math.max(0, c0+Math.round((ev.clientX-sx)/cell.w)));
+    state.stemStart=Math.min(40,Math.max(0, r0+Math.round((ev.clientY-sy)/cell.h)));
+    $('sepCol').value=state.sepCol; $('stemStart').value=state.stemStart;
+    renderInfoNuzzle(); renderPreview();
+  };
+  const up=()=>{ ib.classList.remove('dragging'); document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+  document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+}
+function updateInfoDiag(){
+  const d=$('infoDiag'); if(!d) return;
+  const info=srcLines(state.info), stem=srcLines(state.stem);
+  const n=info.length, stemRows=stem.length;
+  const avail=stemRows-state.stemStart;
+  const longest=Math.max(0,...info.map(visLen));
+  const overflow=(state.stemStart+n)-stemRows;
+  let msg=`<b>${n}</b> info lines · stem has <b>${stemRows}</b> rows, <b>${Math.max(0,avail)}</b> available from row ${state.stemStart} · longest info line <b>${longest}</b> cols · nuzzle at col <b>${state.sepCol}</b>`;
+  if(overflow>0) msg+=`<br><span class="warn">⚠ ${overflow} info line(s) extend past the stem — those rows get no floral prefix (blank stem).</span>`;
+  d.innerHTML=msg;
 }
 
 function sizeEditor(){
