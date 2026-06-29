@@ -1,0 +1,16 @@
+# eza/ls long-format aliases (defined before clear() so the function uses them)
+alias eza='eza -l'
+alias ls='eza -l'
+
+# 'clear' redraws the fastfetch splash, then lists the directory
+clear() { command clear; "$HOME/.config/fastfetch/flowerfetch.sh"; ls; }
+alias c=clear
+
+# On a fresh interactive login (e.g. a new SSH session) start clean with the
+# fastfetch splash — once per session, not again in every subshell.
+if [[ $- == *i* ]] && [[ -z "${FASTFETCH_SPLASH_DONE:-}" ]] && [[ -x "$HOME/.config/fastfetch/flowerfetch.sh" ]]; then
+    export FASTFETCH_SPLASH_DONE=1
+    clear
+
+# flower-bordered fastfetch
+alias fastfetch="$HOME/.config/fastfetch/flowerfetch.sh"
