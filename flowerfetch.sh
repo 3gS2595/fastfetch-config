@@ -8,10 +8,19 @@ set -euo pipefail
 FF=/usr/bin/fastfetch
 DIR="$HOME/.config/fastfetch"
 RESET=$'\033[0m'
-GREEN=$'\033[38;2;140;185;120m'
-PURPLE=$'\033[38;2;175;120;225m'  # info text color
-SEP_TXT_COL=7                     # column where info nests against the stem
-STEM_START=9                      # first clean stem row in floral_sep.txt
+ESC=$'\033'
+
+# --- tunables (also written by composer.html into flowerfetch.conf) -----------
+# Defaults below match the original hardcoded values; the conf overrides them.
+SEP_TXT_COL=7           # column where info nests against the stem
+STEM_START=9            # first clean stem row in floral_sep.txt
+GAP="  "                # spaces between the logo and the floral block
+FRAME_RGB="140 185 120" # floral/frame color, "R G B" (0-255)
+TEXT_RGB="175 120 225"  # info text color,   "R G B" (0-255)
+[ -r "$DIR/flowerfetch.conf" ] && source "$DIR/flowerfetch.conf"
+
+GREEN="${ESC}[38;2;${FRAME_RGB// /;}m"
+PURPLE="${ESC}[38;2;${TEXT_RGB// /;}m"
 
 strip() { sed 's/\x1b\[[0-9;]*m//g' <<<"$1"; }
 vlen()  { local s; s=$(strip "$1"); printf '%s' "${#s}"; }
@@ -43,7 +52,6 @@ lr=${#LOGO[@]}
 canvas=$total; (( lr>canvas )) && canvas=$lr
 ltop=$(( (canvas - lr) / 2 ))
 mtop=$(( (canvas - total) / 2 ))
-GAP="  "
 
 for (( i=0; i<canvas; i++ )); do
   li=$(( i - ltop ))
