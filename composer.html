@@ -93,7 +93,11 @@
 
   /* preview */
   .preview{flex:1; min-height:0; overflow:auto; padding:14px; background:#0d0b12}
-  pre#composed{font-family:var(--mono); font-size:var(--fs); line-height:1.2; margin:0; white-space:pre}
+  pre#composed{font-family:var(--mono); font-size:var(--fs); line-height:1.2; margin:0}
+  /* terminal-faithful grid: every glyph is forced into exactly one 1ch column, so
+     alignment never depends on the font's per-glyph width (the bulletproof fix). */
+  pre#composed .prow{white-space:nowrap; line-height:1.2}
+  pre#composed .cell{display:inline-block; width:1ch; vertical-align:top}
   .preview{position:relative}
   #previewImgs{position:absolute; inset:0; pointer-events:none}
   #previewImgs .kimg{position:absolute; pointer-events:auto; cursor:grab; image-rendering:auto; border:1px dashed rgba(175,120,225,.4); box-shadow:0 0 0 1px rgba(0,0,0,.4)}
@@ -328,13 +332,26 @@ function compose(){
   }
   return {rows,total,lr,canvas,lw,ltop};
 }
+// Build a run of characters as FIXED 1ch cells (.cell), so every glyph advances
+// exactly one column regardless of the font's actual glyph width — a terminal-faithful
+// grid. This is what guarantees the info nuzzles into a block even if the braille and
+// ascii glyphs come from different fallback fonts with different advances.
+function cellRun(strChars, color){
+  const col = color ? ` style="color:${color}"` : '';
+  let h='';
+  for(const ch of Array.from(strChars)){ h += `<span class="cell"${col}>${esc(ch)}</span>`; }
+  return h;
+}
 function renderPreview(){
   const c=compose(); const frame=rgbCss(state.frame), text=rgbCss(state.text), GAP=' '.repeat(state.gap);
   let html='';
   for(const r of c.rows){
-    html+=`<span style="color:${frame}">${esc(r.logo)}</span>`+esc(GAP);
-    if(r.mid){ if(r.mid.type==='g') html+=`<span style="color:${frame}">${esc(r.mid.text)}</span>`; else html+=`<span style="color:${frame}">${esc(r.mid.stem)}</span><span style="color:${text}">${esc(r.mid.info)}</span>`; }
-    html+='\n';
+    let row = cellRun(r.logo, frame) + cellRun(GAP, null);
+    if(r.mid){
+      if(r.mid.type==='g') row += cellRun(r.mid.text, frame);
+      else row += cellRun(r.mid.stem, frame) + cellRun(r.mid.info, text);
+    }
+    html += `<div class="prow">${row}</div>`;
   }
   $('composed').innerHTML=html;
   const kit=kittyLayers().length;
@@ -369,7 +386,8 @@ function dragKitty(e,L,ltop){
     L.ox=Math.max(0, ox0+Math.round((ev.clientX-sx)/cell.w));
     L.oy=Math.max(0, oy0+Math.round((ev.clientY-sy)/cell.h));
     const cx=$('cOx'), cy=$('cOy'); if(cx)cx.value=L.ox; if(cy)cy.value=L.oy;
-    renderPreview();
+    // reposition the overlays only — the composed text grid is unchanged by a drag
+    renderPreviewImgs(compose().ltop);
   };
   const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
   document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
