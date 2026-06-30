@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>flowerfetch composer — Phase 3</title>
+<title>flowerfetch composer — Phase 4</title>
 <style>
   :root{
     --fs: 13px;
@@ -88,7 +88,11 @@
 
   /* preview */
   .preview{flex:1; min-height:0; overflow:auto; padding:14px; background:#0d0b12}
-  pre#composed{font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:var(--fs); line-height:1.18; margin:0; white-space:pre}
+  pre#composed{font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:var(--fs); line-height:1.2; margin:0; white-space:pre}
+  .preview{position:relative}
+  #previewImgs{position:absolute; inset:0; pointer-events:none}
+  #previewImgs .kimg{position:absolute; pointer-events:auto; cursor:grab; image-rendering:auto; border:1px dashed rgba(175,120,225,.4); box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  #previewImgs .kimg.sel{border:1px solid var(--accent); outline:1px solid rgba(175,120,225,.3)}
   .zoom{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
   .zoom input{width:80px}
   .note{padding:8px 12px;color:var(--muted);font-size:11px;border-top:1px solid var(--line);background:var(--panel)}
@@ -109,7 +113,7 @@
 <body>
 <header>
   <h1>flower<span>fetch</span> composer</h1>
-  <span class="tag">Phase 3 · image layers + info placement</span>
+  <span class="tag">Phase 4 · kitty real-images</span>
   <div class="spacer"></div>
   <button class="mini" id="resetBtn">Reset</button>
   <button class="primary" id="exportBtn">⬇ Export files</button>
@@ -159,7 +163,7 @@
   <!-- RIGHT -->
   <section class="col">
     <h2>Live composed preview<div class="spacer"></div><span class="zoom" style="font-size:11px">(matches flowerfetch.sh)</span></h2>
-    <div class="preview"><pre id="composed"></pre></div>
+    <div class="preview"><pre id="composed"></pre><div id="previewImgs"></div></div>
     <div class="note" id="previewNote"></div>
   </section>
 </main>
@@ -234,6 +238,14 @@ async function renderImageLayer(L){
   if(!L.src) { L.grid=[]; return; }
   const img = await loadImg(L.src);
   L.imgW=img.width; L.imgH=img.height;
+  if(L.effect==='kitty'){
+    // real image: no text grid (drawn over the splash by baseline.splash_images).
+    L.grid=[];
+    // default the cell box to preserve aspect (cells are ~1:2 w:h) the first time
+    if(!L.kRows){ L.kRows=12; }
+    if(!L.kCols){ L.kCols=Math.max(1, Math.round(2*L.kRows*img.width/img.height)); }
+    return;
+  }
   if(L.effect==='braille'){
     const rows=Math.max(1,L.rows|0); const Hp=rows*4;
     const cols=Math.max(1, Math.round(img.width*Hp/img.height/2)); const Wp=cols*2;
@@ -309,7 +321,7 @@ function compose(){
     const mi=i-mtop; const mid=(mi>=0&&mi<total)?MID[mi]:null;
     rows.push({logo,mid});
   }
-  return {rows,total,lr,canvas,lw};
+  return {rows,total,lr,canvas,lw,ltop};
 }
 function renderPreview(){
   const c=compose(); const frame=rgbCss(state.frame), text=rgbCss(state.text), GAP=' '.repeat(state.gap);
@@ -320,7 +332,42 @@ function renderPreview(){
     html+='\n';
   }
   $('composed').innerHTML=html;
-  $('previewNote').textContent=`splash ${c.canvas} rows · logo ${c.lr}×${c.lw} · ${state.logoLayers.length} logo layer(s) · garland_bot unused`;
+  const kit=kittyLayers().length;
+  $('previewNote').textContent=`splash ${c.canvas} rows · logo ${c.lr}×${c.lw} · ${state.logoLayers.length} logo layer(s)${kit?` · ${kit} kitty image(s)`:''} · garland_bot unused`;
+  renderPreviewImgs(c.ltop);
+}
+// kitty image overlays on the splash preview (real <img>, draggable) ----------
+function kittyLayers(){ return state.logoLayers.filter(l=>l.type==='image' && l.effect==='kitty' && l.visible); }
+// absolute splash cell of a kitty layer: logo sits at col 0, rows [ltop..]; the
+// layer's oy is relative to the logo top — matches what we export & what nvim draws.
+function kittyCell(L, ltop){ return { col: L.ox|0, row: (ltop|0) + (L.oy|0) }; }
+function renderPreviewImgs(ltop){
+  const host=$('previewImgs'); if(!host) return;
+  host.innerHTML='';
+  measureCell();
+  const PAD=14; // .preview padding
+  for(const L of kittyLayers()){
+    const {col,row}=kittyCell(L, ltop);
+    const im=document.createElement('img');
+    im.src=L.src; im.className='kimg'+(sel.kind==='logo'&&sel.id===L.id?' sel':'');
+    im.style.left=(PAD+col*cell.w)+'px'; im.style.top=(PAD+row*cell.h)+'px';
+    im.style.width=((L.kCols||10)*cell.w)+'px'; im.style.height=((L.kRows||6)*cell.h)+'px';
+    im.title=L.name+' — drag to position';
+    im.addEventListener('mousedown', e=>dragKitty(e,L,ltop));
+    host.appendChild(im);
+  }
+}
+function dragKitty(e,L,ltop){
+  e.preventDefault(); selectLayer('logo',L.id);
+  const sx=e.clientX, sy=e.clientY, ox0=L.ox|0, oy0=L.oy|0; measureCell();
+  const move=ev=>{
+    L.ox=Math.max(0, ox0+Math.round((ev.clientX-sx)/cell.w));
+    L.oy=Math.max(0, oy0+Math.round((ev.clientY-sy)/cell.h));
+    const cx=$('cOx'), cy=$('cOy'); if(cx)cx.value=L.ox; if(cy)cy.value=L.oy;
+    renderPreview();
+  };
+  const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+  document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
 }
 
 // ====== logo canvas (interactive) =========================================
@@ -428,15 +475,29 @@ function renderImageControls(p,L){
       <select id="cEffect">
         <option value="braille"${L.effect==='braille'?' selected':''}>Braille (mono)</option>
         <option value="ascii"${L.effect==='ascii'?' selected':''}>ASCII ramp</option>
+        <option value="kitty"${L.effect==='kitty'?' selected':''}>Kitty (real image)</option>
       </select></div>
     <div id="effBody"></div>
     <div class="row tight"><label>Position X (col)</label><input type="number" id="cOx" value="${L.ox}" min="0"></div>
     <div class="row tight"><label>Position Y (row)</label><input type="number" id="cOy" value="${L.oy}" min="0"></div>
   `;
   p.appendChild(wrap);
-  const eff=document.createElement('div'); $('effBody')?.replaceWith; // noop
   const body=wrap.querySelector('#effBody');
   function drawEff(){
+    if(L.effect==='kitty'){
+      body.innerHTML=`
+        <div class="row tight"><label style="flex:none;color:var(--accent)">Real image — drawn over the splash in your terminal (not braille).</label></div>
+        <div class="row tight"><label>Width (cells)</label><input type="number" id="kCols" value="${L.kCols||''}" min="1" max="200"></div>
+        <div class="row tight"><label>Height (cells)</label><input type="number" id="kRows" value="${L.kRows||''}" min="1" max="120"></div>
+        <div class="row tight"><label>z-index (1 = over text)</label><input type="number" id="kZ" value="${L.kZ??1}"></div>
+        <div class="row tight"><button class="mini" id="kFit">Fit to image aspect</button></div>`;
+      const re=()=>{ renderPreview(); };
+      body.querySelector('#kCols').oninput=e=>{L.kCols=Math.max(1,+e.target.value||1); re();};
+      body.querySelector('#kRows').oninput=e=>{L.kRows=Math.max(1,+e.target.value||1); re();};
+      body.querySelector('#kZ').oninput=e=>{L.kZ=+e.target.value||0;};
+      body.querySelector('#kFit').onclick=()=>{ L.kCols=Math.max(1,Math.round(2*(L.kRows||12)*L.imgW/L.imgH)); body.querySelector('#kCols').value=L.kCols; re(); };
+      return;
+    }
     if(L.effect==='braille'){
       body.innerHTML=`
         <div class="row tight"><label>Height (braille rows)</label><input type="number" id="cRows" value="${L.rows}" min="1" max="60"></div>
@@ -459,7 +520,7 @@ function renderImageControls(p,L){
   }
   drawEff();
   wrap.querySelector('#cName').oninput=e=>{L.name=e.target.value; renderLeft(); renderLogoCanvas();};
-  wrap.querySelector('#cEffect').onchange=e=>{L.effect=e.target.value; drawEff(); reRender(L);};
+  wrap.querySelector('#cEffect').onchange=async e=>{L.effect=e.target.value; await reRender(L); renderCtx();};
   wrap.querySelector('#cOx').oninput=e=>{L.ox=Math.max(0,+e.target.value||0); renderLogoCanvas(); renderPreview();};
   wrap.querySelector('#cOy').oninput=e=>{L.oy=Math.max(0,+e.target.value||0); renderLogoCanvas(); renderPreview();};
 }
@@ -597,7 +658,8 @@ function dragGuide(e,axis){
 function addImageFromDataURL(src, ox=0, oy=0){
   const L={ id:uid++, type:'image', name:'Image '+(state.logoLayers.filter(l=>l.type==='image').length+1),
     visible:true, ox, oy, src, effect:'braille', thresh:128, invert:false, dither:false, rows:16,
-    asciiRows:14, ramp:' .:-=+*#%@', asciiInvert:false, grid:[] };
+    asciiRows:14, ramp:' .:-=+*#%@', asciiInvert:false, grid:[],
+    kCols:null, kRows:null, kZ:1 };
   state.logoLayers.push(L);
   selectLayer('logo',L.id);
   reRender(L);
@@ -649,9 +711,37 @@ TEXT_RGB="${state.text.join(' ')}"
 `; }
 const ensureNL=s=>s.endsWith('\n')?s:s+'\n';
 function download(name,text){ const b=new Blob([text],{type:'text/plain'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500); }
+function downloadBlob(name,blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500); }
+const dataURLtoBlob = u => { const [h,d]=u.split(','); const mime=(h.match(/:(.*?);/)||[])[1]||'image/png'; const bin=atob(d); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i); return new Blob([arr],{type:mime}); };
+// slug a layer name into a safe png filename
+const slug = (s,i) => (s.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||('img'+i))+'.png';
+function placementsLua(){
+  const c=compose(); const layers=kittyLayers();
+  const lines=layers.map((L,i)=>{
+    const {col,row}=kittyCell(L,c.ltop);
+    return `    { file = "kitty/${slug(L.name,i+1)}", col = ${col}, row = ${row}, cols = ${L.kCols||10}, rows = ${L.kRows||6}, z = ${L.kZ??1} },  -- ${L.name}`;
+  });
+  return `-- flowerfetch composer — kitty image placements.
+-- Put this at ~/.config/fastfetch/kitty/placements.lua and the PNGs alongside it.
+-- Then in Neovim: :SplashImages   (calibrate alignment with :SplashImagesNudge <dcol> <drow>)
+-- Coordinates are cells from the splash pane's top-left; rows assume your real
+-- 'fastfetch --logo none' has ${srcLines(state.info).length} info line(s) (paste yours in the Info tool to match).
+return {
+  base_offset = { row = 0, col = 0 },
+  images = {
+${lines.join('\n')}
+  },
+}
+`;
+}
 $('exportBtn').onclick=async()=>{
   const files=[['logo.txt',ensureNL(flattenLogo())],['floral_sep.txt',ensureNL(state.stem)],['garland_top.txt',ensureNL(state.gtop)],['flowerfetch.conf',confText()]];
   for(const [n,t] of files){ download(n,t); await new Promise(r=>setTimeout(r,250)); }
+  const kit=kittyLayers();
+  if(kit.length){
+    download('placements.lua', placementsLua()); await new Promise(r=>setTimeout(r,250));
+    for(let i=0;i<kit.length;i++){ downloadBlob(slug(kit[i].name,i+1), dataURLtoBlob(kit[i].src)); await new Promise(r=>setTimeout(r,250)); }
+  }
 };
 
 // ====== boot ===============================================================
